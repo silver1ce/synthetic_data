@@ -1,84 +1,79 @@
 import numpy as np
 import pandas as pd
-from tensorflow.keras.layers import Dense, Input, LeakyReLU, BatchNormalization
+from tensorflow.keras.layers import Input, Dense, Lambda
 from tensorflow.keras.models import Model
-from tensorflow.keras.optimizers import Adam
+from tensorflow.keras.losses import mse
+from tensorflow.keras import backend as K
 
-# Sample original dataset with numerical and object columns
+# Sample original dataset with an object column
 # Replace this with your actual data loading code
-original_data = pd.DataFrame({
-    'numeric_col1': np.random.rand(1000),
-    'numeric_col2': np.random.rand(1000),
-    'object_col1': ['Category A', 'Category B', 'Category C'] * 333
-})
+original_data = pd.DataFrame({'object_col': ['Category A', 'Category B', 'Category C'] * 333})
 
-# Define a GAN architecture for generating numerical data
-def build_numerical_gan(input_dim, output_dim):
-    generator_input = Input(shape=(input_dim,))
-    generator = Dense(128)(generator_input)
-    generator = LeakyReLU(0.2)(generator)
-    generator = BatchNormalization()(generator)
-    generator = Dense(output_dim, activation='tanh')(generator)
-    generator = Model(generator_input, generator)
+# Define a VAE architecture for generating object data
+def build_object_vae(input_dim, latent_dim):
+    input_layer = Input(shape=(input_dim,))
+    
+    # Encoder
+    encoded = Dense(256, activation='relu')(input_layer)
+    encoded = Dense(128, activation='relu')(encoded)
+    
+    # Latent space mean and log variance
+    z_mean = Dense(latent_dim)(encoded)
+    z_log_var = Dense(latent_dim)(encoded)
+    
+    # Reparameterization trick
+    def sampling(args):
+        z_mean, z_log_var = args
+        epsilon = K.random_normal(shape=(K.shape(z_mean)[0], latent_dim), mean=0., stddev=1.0)
+        return z_mean + K.exp(0.5 * z_log_var) * epsilon
+    
+    z = Lambda(sampling)([z_mean, z_log_var])
+    
+    # Decoder
+    decoded = Dense(128, activation='relu')(z)
+    decoded = Dense(256, activation='relu')(decoded)
+    decoded = Dense(input_dim, activation='softmax')(decoded)  # Softmax activation for object data
+    
+    # VAE model
+    vae = Model(input_layer, decoded)
+    
+    # VAE loss function
+    reconstruction_loss = mse(input_layer, decoded)
+    reconstruction_loss *= input_dim  # Adjust reconstruction loss
+    kl_loss = 1 + z_log_var - K.square(z_mean) - K.exp(z_log_var)
+    kl_loss = K.sum(kl_loss, axis=-1)
+    kl_loss *= -0.5
+    vae_loss = K.mean(reconstruction_loss + kl_loss)
+    
+    vae.add_loss(vae_loss)
+    vae.compile(optimizer='adam')
+    
+    return vae
 
-    discriminator_input = Input(shape=(output_dim,))
-    discriminator = Dense(128)(discriminator_input)
-    discriminator = LeakyReLU(0.2)(discriminator)
-    discriminator = Dense(1, activation='sigmoid')(discriminator)
-    discriminator = Model(discriminator_input, discriminator)
-    discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
-
-    gan_input = Input(shape=(input_dim,))
-    gan_output = discriminator(generator(gan_input))
-    gan = Model(gan_input, gan_output)
-    gan.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5))
-
-    return generator, discriminator, gan
-
-# Define a function to generate synthetic numerical data
-def generate_synthetic_numerical_data(generator, num_samples=1000):
-    noise = np.random.normal(0, 1, (num_samples, input_dim))
-    synthetic_data = generator.predict(noise)
+# Define a function to generate synthetic object data
+def generate_synthetic_object_data(vae, num_samples=1000):
+    latent_dim = vae.layers[5].output_shape[1]  # Get the latent dimension
+    latent_samples = np.random.normal(0, 1, (num_samples, latent_dim))
+    synthetic_data = vae.predict(latent_samples)
     return synthetic_data
-
-# Define a GAN architecture for generating object (string) data
-def build_object_gan(input_dim, output_dim):
-    # Define your object GAN architecture here
-    # This will depend on the nature of your object data
-    # You may use a recurrent neural network (RNN) or other models
-
-# Define a function to generate synthetic object (string) data
-def generate_synthetic_object_data(generator, num_samples=1000):
-    # Implement code to generate synthetic object data here
 
 # Example usage
 if __name__ == "__main__":
-    num_samples = 1000
-    input_dim = 100
-    numerical_output_dim = 2  # Number of numerical columns
-    object_output_dim = 1  # Number of object columns
-
-    # Build and train the numerical GAN
-    numerical_generator, numerical_discriminator, numerical_gan = build_numerical_gan(input_dim, numerical_output_dim)
-
-    # Train the numerical GAN on numerical data (replace with your data loading and preprocessing)
-    numerical_real_data = original_data[['numeric_col1', 'numeric_col2']].to_numpy()
-    numerical_real_data = (numerical_real_data - numerical_real_data.min()) / (numerical_real_data.max() - numerical_real_data.min())
-
-    # Training code for numerical GAN goes here
-
-    # Generate synthetic numerical data
-    synthetic_numerical_data = generate_synthetic_numerical_data(numerical_generator, num_samples=num_samples)
-
-    # Build and train the object GAN
-    object_generator, _, _ = build_object_gan(input_dim, object_output_dim)
-
-    # Train the object GAN on object data (replace with your data loading and preprocessing)
-    object_real_data = original_data[['object_col1']].to_numpy()
-
-    # Training code for object GAN goes here
-
+    num_samples = 1000  # Number of synthetic samples to generate
+    
+    # Build and train the object VAE
+    object_input_dim = len(original_data['object_col'].unique())  # Dimension for one-hot encoding
+    object_vae = build_object_vae(object_input_dim, latent_dim=10)
+    
+    # Train the object VAE on object data (replace with your data loading and preprocessing)
+    object_real_data = original_data['object_col'].values
+    
+    # One-hot encode the object data
+    object_real_data_encoded = pd.get_dummies(object_real_data)
+    
+    # Training code for object VAE goes here
+    
     # Generate synthetic object data
-    synthetic_object_data = generate_synthetic_object_data(object_generator, num_samples=num_samples)
+    synthetic_object_data = generate_synthetic_object_data(object_vae, num_samples=num_samples)
 
-    # Now, 'synthetic_numerical_data' and 'synthetic_object_data' contain synthetic data for numerical and object columns, respectively.
+    # Now, 'synthetic_object_data' contains synthetic object data.
