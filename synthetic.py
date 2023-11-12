@@ -1,83 +1,40 @@
 import numpy as np
 import pandas as pd
 import random
-import faker  # A library for generating fake data (e.g., addresses)
-from datetime import datetime, timedelta
-from tensorflow.keras.layers import Dense, Input
+from tensorflow.keras.layers import Dense, Input, LeakyReLU, BatchNormalization
 from tensorflow.keras.models import Model
+from tensorflow.keras.optimizers import Adam
 
-# Define a function to create a GAN for generating numerical data
-def create_gan(input_dim, output_dim):
+# Define a GAN architecture
+def build_gan(input_dim, output_dim):
     # Generator
     generator_input = Input(shape=(input_dim,))
-    generator_output = Dense(128, activation='relu')(generator_input)
-    generator_output = Dense(output_dim, activation='linear')(generator_output)
-    generator = Model(generator_input, generator_output)
+    generator = Dense(128)(generator_input)
+    generator = LeakyReLU(0.2)(generator)
+    generator = BatchNormalization()(generator)
+    generator = Dense(output_dim, activation='tanh')(generator)  # Output layer with tanh activation
+    generator = Model(generator_input, generator)
 
     # Discriminator
     discriminator_input = Input(shape=(output_dim,))
-    discriminator_output = Dense(128, activation='relu')(discriminator_input)
-    discriminator_output = Dense(1, activation='sigmoid')(discriminator_output)
-    discriminator = Model(discriminator_input, discriminator_output)
-    discriminator.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    discriminator = Dense(128)(discriminator_input)
+    discriminator = LeakyReLU(0.2)(discriminator)
+    discriminator = Dense(1, activation='sigmoid')(discriminator)
+    discriminator = Model(discriminator_input, discriminator)
+    discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
     # GAN
     gan_input = Input(shape=(input_dim,))
     gan_output = discriminator(generator(gan_input))
     gan = Model(gan_input, gan_output)
-    gan.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    gan.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5))
 
     return generator, discriminator, gan
 
-# Define a function to generate synthetic numerical data using GAN
-def generate_numerical_data(generator, num_samples=1000):
-    noise = np.random.randn(num_samples, generator.input_shape[1])
+# Define a function to generate synthetic data using GAN
+def generate_synthetic_data(generator, num_samples=1000):
+    noise = np.random.normal(0, 1, (num_samples, input_dim))
     synthetic_data = generator.predict(noise)
-    return synthetic_data
-
-# Define a function to generate synthetic data including text using Faker
-def generate_synthetic_data_with_text(original_data, num_samples=1000):
-    # Create an empty synthetic dataframe with the same columns as the original data
-    synthetic_data = pd.DataFrame(columns=original_data.columns)
-
-    # Create a Faker object for generating fake data (e.g., addresses)
-    fake = faker.Faker()
-
-    for _ in range(num_samples):
-        # Create a dictionary to store synthetic data for one row
-        synthetic_row = {}
-
-        for column in original_data.columns:
-            data_type = original_data[column].dtype
-
-            if np.issubdtype(data_type, np.number):
-                # If the column is numeric, generate a random number within a reasonable range
-                min_value = original_data[column].min()
-                max_value = original_data[column].max()
-                synthetic_value = np.random.uniform(min_value, max_value)
-            elif np.issubdtype(data_type, np.datetime64):
-                # If the column is a datetime, generate a random date within a reasonable range
-                min_date = original_data[column].min()
-                max_date = original_data[column].max()
-                synthetic_date = min_date + (max_date - min_date) * random.random()
-                synthetic_value = datetime.fromordinal(int(synthetic_date))
-            elif data_type == 'object':
-                # If the column is an object, generate synthetic data based on column name
-                if 'company' in column.lower():
-                    synthetic_value = fake.company()
-                elif 'address' in column.lower():
-                    synthetic_value = fake.address()
-                elif 'customer' in column.lower():
-                    synthetic_value = fake.name()
-                else:
-                    # If the column doesn't match known patterns, generate a random word
-                    synthetic_value = fake.word()
-
-            synthetic_row[column] = synthetic_value
-
-        # Append the synthetic row to the synthetic data
-        synthetic_data = synthetic_data.append(synthetic_row, ignore_index=True)
-
     return synthetic_data
 
 # Example usage
@@ -85,16 +42,36 @@ if __name__ == "__main__":
     # Sample numerical data dimensions (customize for your data)
     num_samples = 1000
     num_features = 5
-
-    # Generate sample numerical data using GAN
     input_dim = 100  # Size of the random noise vector for the generator
-    generator, _, _ = create_gan(input_dim, num_features)
-    numerical_data = generate_numerical_data(generator, num_samples=num_samples)
 
-    # Load your original dataset (replace with your data loading code)
-    original_data = pd.read_csv("your_data.csv")
+    # Build and train the GAN
+    generator, discriminator, gan = build_gan(input_dim, num_features)
 
-    # Generate synthetic data including text using Faker
-    synthetic_data = generate_synthetic_data_with_text(original_data, num_samples=num_samples)
+    # Train the GAN on your real data (replace with your data loading and preprocessing)
+    real_data = pd.read_csv("your_real_data.csv")  # Load your real data
+    real_data = real_data.to_numpy()  # Convert to NumPy array if not already
+    real_data = (real_data - real_data.min()) / (real_data.max() - real_data.min())  # Normalize to [0, 1]
 
-   
+    epochs = 10000  # Number of training epochs (customize as needed)
+    batch_size = 64  # Batch size for training
+
+    for epoch in range(epochs):
+        # Train the discriminator (real data vs. generated data)
+        real_data_batch = real_data[np.random.randint(0, real_data.shape[0], batch_size)]
+        fake_data_batch = generate_synthetic_data(generator, num_samples=batch_size)
+        discriminator_loss_real = discriminator.train_on_batch(real_data_batch, np.ones((batch_size, 1)))
+        discriminator_loss_fake = discriminator.train_on_batch(fake_data_batch, np.zeros((batch_size, 1)))
+        discriminator_loss = 0.5 * np.add(discriminator_loss_real, discriminator_loss_fake)
+
+        # Train the generator
+        noise = np.random.normal(0, 1, (batch_size, input_dim))
+        generator_loss = gan.train_on_batch(noise, np.ones((batch_size, 1)))
+
+        # Print progress
+        if epoch % 100 == 0:
+            print(f"Epoch {epoch}/{epochs}, D Loss: {discriminator_loss[0]}, G Loss: {generator_loss}")
+
+    # Generate synthetic data
+    synthetic_data = generate_synthetic_data(generator, num_samples=num_samples)
+
+    # Now, 'synthetic_data' contains synthetic data generated by the GAN that should be closer to real data.
