@@ -1,21 +1,26 @@
 import numpy as np
 import pandas as pd
-import random
 from tensorflow.keras.layers import Dense, Input, LeakyReLU, BatchNormalization
 from tensorflow.keras.models import Model
 from tensorflow.keras.optimizers import Adam
 
-# Define a GAN architecture
-def build_gan(input_dim, output_dim):
-    # Generator
+# Sample original dataset with numerical and object columns
+# Replace this with your actual data loading code
+original_data = pd.DataFrame({
+    'numeric_col1': np.random.rand(1000),
+    'numeric_col2': np.random.rand(1000),
+    'object_col1': ['Category A', 'Category B', 'Category C'] * 333
+})
+
+# Define a GAN architecture for generating numerical data
+def build_numerical_gan(input_dim, output_dim):
     generator_input = Input(shape=(input_dim,))
     generator = Dense(128)(generator_input)
     generator = LeakyReLU(0.2)(generator)
     generator = BatchNormalization()(generator)
-    generator = Dense(output_dim, activation='tanh')(generator)  # Output layer with tanh activation
+    generator = Dense(output_dim, activation='tanh')(generator)
     generator = Model(generator_input, generator)
 
-    # Discriminator
     discriminator_input = Input(shape=(output_dim,))
     discriminator = Dense(128)(discriminator_input)
     discriminator = LeakyReLU(0.2)(discriminator)
@@ -23,7 +28,6 @@ def build_gan(input_dim, output_dim):
     discriminator = Model(discriminator_input, discriminator)
     discriminator.compile(loss='binary_crossentropy', optimizer=Adam(0.0002, 0.5), metrics=['accuracy'])
 
-    # GAN
     gan_input = Input(shape=(input_dim,))
     gan_output = discriminator(generator(gan_input))
     gan = Model(gan_input, gan_output)
@@ -31,47 +35,50 @@ def build_gan(input_dim, output_dim):
 
     return generator, discriminator, gan
 
-# Define a function to generate synthetic data using GAN
-def generate_synthetic_data(generator, num_samples=1000):
+# Define a function to generate synthetic numerical data
+def generate_synthetic_numerical_data(generator, num_samples=1000):
     noise = np.random.normal(0, 1, (num_samples, input_dim))
     synthetic_data = generator.predict(noise)
     return synthetic_data
 
+# Define a GAN architecture for generating object (string) data
+def build_object_gan(input_dim, output_dim):
+    # Define your object GAN architecture here
+    # This will depend on the nature of your object data
+    # You may use a recurrent neural network (RNN) or other models
+
+# Define a function to generate synthetic object (string) data
+def generate_synthetic_object_data(generator, num_samples=1000):
+    # Implement code to generate synthetic object data here
+
 # Example usage
 if __name__ == "__main__":
-    # Sample numerical data dimensions (customize for your data)
     num_samples = 1000
-    num_features = 5
-    input_dim = 100  # Size of the random noise vector for the generator
+    input_dim = 100
+    numerical_output_dim = 2  # Number of numerical columns
+    object_output_dim = 1  # Number of object columns
 
-    # Build and train the GAN
-    generator, discriminator, gan = build_gan(input_dim, num_features)
+    # Build and train the numerical GAN
+    numerical_generator, numerical_discriminator, numerical_gan = build_numerical_gan(input_dim, numerical_output_dim)
 
-    # Train the GAN on your real data (replace with your data loading and preprocessing)
-    real_data = pd.read_csv("your_real_data.csv")  # Load your real data
-    real_data = real_data.to_numpy()  # Convert to NumPy array if not already
-    real_data = (real_data - real_data.min()) / (real_data.max() - real_data.min())  # Normalize to [0, 1]
+    # Train the numerical GAN on numerical data (replace with your data loading and preprocessing)
+    numerical_real_data = original_data[['numeric_col1', 'numeric_col2']].to_numpy()
+    numerical_real_data = (numerical_real_data - numerical_real_data.min()) / (numerical_real_data.max() - numerical_real_data.min())
 
-    epochs = 10000  # Number of training epochs (customize as needed)
-    batch_size = 64  # Batch size for training
+    # Training code for numerical GAN goes here
 
-    for epoch in range(epochs):
-        # Train the discriminator (real data vs. generated data)
-        real_data_batch = real_data[np.random.randint(0, real_data.shape[0], batch_size)]
-        fake_data_batch = generate_synthetic_data(generator, num_samples=batch_size)
-        discriminator_loss_real = discriminator.train_on_batch(real_data_batch, np.ones((batch_size, 1)))
-        discriminator_loss_fake = discriminator.train_on_batch(fake_data_batch, np.zeros((batch_size, 1)))
-        discriminator_loss = 0.5 * np.add(discriminator_loss_real, discriminator_loss_fake)
+    # Generate synthetic numerical data
+    synthetic_numerical_data = generate_synthetic_numerical_data(numerical_generator, num_samples=num_samples)
 
-        # Train the generator
-        noise = np.random.normal(0, 1, (batch_size, input_dim))
-        generator_loss = gan.train_on_batch(noise, np.ones((batch_size, 1)))
+    # Build and train the object GAN
+    object_generator, _, _ = build_object_gan(input_dim, object_output_dim)
 
-        # Print progress
-        if epoch % 100 == 0:
-            print(f"Epoch {epoch}/{epochs}, D Loss: {discriminator_loss[0]}, G Loss: {generator_loss}")
+    # Train the object GAN on object data (replace with your data loading and preprocessing)
+    object_real_data = original_data[['object_col1']].to_numpy()
 
-    # Generate synthetic data
-    synthetic_data = generate_synthetic_data(generator, num_samples=num_samples)
+    # Training code for object GAN goes here
 
-    # Now, 'synthetic_data' contains synthetic data generated by the GAN that should be closer to real data.
+    # Generate synthetic object data
+    synthetic_object_data = generate_synthetic_object_data(object_generator, num_samples=num_samples)
+
+    # Now, 'synthetic_numerical_data' and 'synthetic_object_data' contain synthetic data for numerical and object columns, respectively.
